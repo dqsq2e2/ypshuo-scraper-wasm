@@ -112,12 +112,11 @@ struct BookItem {
 #[derive(Deserialize)]
 struct YpshuoResponse<T> {
     code: String,
-    data: T,
+    data: Option<T>, // Data can be null if not found
 }
 
 #[derive(Deserialize)]
 struct YpshuoSearchData {
-    // page: String,
     data: Vec<YpshuoBook>,
 }
 
@@ -147,22 +146,48 @@ fn handle_search(params_json: &str) -> Result<SearchResult, String> {
     );
 
     let body = fetch_url(&url)?;
+    // Use serde_json::Value to inspect response structure first if needed, but here we adapt the model
     let resp: YpshuoResponse<YpshuoSearchData> = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
     
     if resp.code != "00" {
         return Err(format!("API Error: {}", resp.code));
     }
 
-    let items = resp.data.data.into_iter().map(|b| BookItem {
-        id: b.id.to_string(),
-        title: b.novel_name,
-        author: b.author_name,
-        cover_url: Some(b.novel_img),
-        intro: Some(b.synopsis),
-        narrator: None,
-        tags: b.tags.unwrap_or_default().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
-        chapter_count: None,
-        duration: None,
+    // Handle case where data is None (e.g. no results)
+    let book_list = match resp.data {
+        Some(d) => d.data,
+        None => Vec::new(),
+    };
+
+    let items = book_list.into_iter().map(|b| {
+        // 1. Clean title: remove suffix after first "丨" or "|"
+        let clean_title = b.novel_name
+            .split('丨')
+            .next()
+            .unwrap_or(&b.novel_name)
+            .split('|')
+            .next()
+            .unwrap_or(&b.novel_name)
+            .trim()
+            .to_string();
+
+        // 2. Fix cover URL: add https protocol if missing
+        let mut cover = b.novel_img;
+        if cover.starts_with("//") {
+            cover = format!("https:{}", cover);
+        }
+
+        BookItem {
+            id: b.id.to_string(),
+            title: clean_title,
+            author: b.author_name,
+            cover_url: Some(cover),
+            intro: Some(b.synopsis),
+            narrator: None,
+            tags: b.tags.unwrap_or_default().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+            chapter_count: None,
+            duration: None,
+        }
     }).collect();
 
     Ok(SearchResult {
