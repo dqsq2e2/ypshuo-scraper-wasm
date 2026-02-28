@@ -1,6 +1,6 @@
 {
   "name": "ypshuo-scraper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "plugin_type": "scraper",
   "author": "Ting Reader Team",
   "description": "阅评说 (ypshuo.com) 小说刮削插件",
