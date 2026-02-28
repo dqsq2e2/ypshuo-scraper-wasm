@@ -4,17 +4,17 @@ Ting Reader 的阅评说 (ypshuo.com) 刮削插件，基于 WASM 技术实现。
 
 ## 编译
 
-本插件需要 `wasm32-wasi` 目标支持：
+本插件需要 `wasm32-wasip1` 目标支持：
 
 ```bash
 # 添加构建目标
-rustup target add wasm32-wasi
+rustup target add wasm32-wasip1
 
 # 编译
-cargo build --target wasm32-wasi --release
+cargo build --target wasm32-wasip1 --release
 ```
 
-编译产物位于：`target/wasm32-wasi/release/ypshuo_scraper.wasm`
+编译产物位于：`target/wasm32-wasip1/release/ypshuo_scraper.wasm`
 
 ## 安装
 
