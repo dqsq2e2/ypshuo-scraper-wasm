@@ -45,15 +45,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-wasi
+          targets: wasm32-wasip1
 
       - name: Build
-        run: cargo build --release --target wasm32-wasi
+        run: cargo build --release --target wasm32-wasip1
 
       - name: Prepare Release Artifacts
         run: |
           mkdir -p release
-          cp target/wasm32-wasi/release/ypshuo_scraper.wasm release/
+          cp target/wasm32-wasip1/release/ypshuo_scraper.wasm release/
           cp plugin.json release/
           
           # Sync version to plugin.json
