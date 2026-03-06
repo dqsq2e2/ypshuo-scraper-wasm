@@ -81,6 +81,10 @@ fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
 struct SearchParams {
     query: String,
     page: u32,
+    #[serde(default)]
+    author: Option<String>,
+    #[serde(default, rename = "narrator")]
+    _narrator: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -159,7 +163,7 @@ fn handle_search(params_json: &str) -> Result<SearchResult, String> {
         None => Vec::new(),
     };
 
-    let items = book_list.into_iter().map(|b| {
+    let mut items: Vec<BookItem> = book_list.into_iter().map(|b| {
         // 1. Clean title: remove suffix after first "丨" or "|"
         let clean_title = b.novel_name
             .split('丨')
@@ -189,6 +193,22 @@ fn handle_search(params_json: &str) -> Result<SearchResult, String> {
             duration: None,
         }
     }).collect();
+
+    // Filter by author if provided
+    if let Some(author_filter) = &params.author {
+        if !author_filter.is_empty() {
+            let normalized_filter = author_filter.trim().to_lowercase();
+            let index = items.iter().position(|item| {
+                let author = item.author.trim().to_lowercase();
+                !author.is_empty() && (author.contains(&normalized_filter) || normalized_filter.contains(&author))
+            });
+
+            if let Some(idx) = index {
+                let matched_item = items.remove(idx);
+                items.insert(0, matched_item);
+            }
+        }
+    }
 
     Ok(SearchResult {
         items,
