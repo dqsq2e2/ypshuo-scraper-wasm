@@ -1,10 +1,13 @@
 {
-  "name": "ypshuo-scraper",
-  "version": "1.0.1",
+  "id": "ypshuo-scraper-wasm",
+  "name": "ypshuo scraper",
+  "version": "1.0.0",
   "plugin_type": "scraper",
   "author": "Ting Reader Team",
-  "description": "阅评说 (ypshuo.com) 小说刮削插件",
+  "description": "阅评说 (ypshuo.com) 小说刮削插件（WebAssembly 实现）",
   "runtime": "wasm",
+  "license": "MIT",
+  "homepage": "https://github.com/dqsq2e2/ypshuo-scraper-wasm",
   "entry_point": "ypshuo_scraper.wasm",
   "permissions": [
     { "type": "network_access", "value": "m.ypshuo.com" }
