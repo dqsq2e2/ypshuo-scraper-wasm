@@ -5,6 +5,7 @@
   "plugin_type": "scraper",
   "author": "Ting Reader Team",
   "description": "阅评说 (ypshuo.com) 小说刮削插件（WebAssembly 实现）",
+  "description_en": "Novel scraper plugin for ypshuo.com (WebAssembly implementation)",
   "runtime": "wasm",
   "license": "MIT",
   "homepage": "https://github.com/dqsq2e2/ypshuo-scraper-wasm",
