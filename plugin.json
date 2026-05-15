@@ -4,13 +4,14 @@
   "version": "1.0.5",
   "plugin_type": "scraper",
   "author": "Ting Reader Team",
-  "description": "阅评说 (ypshuo.com) 小说刮削插件（WebAssembly 实现）",
-  "description_en": "Novel scraper plugin for ypshuo.com (WebAssembly implementation)",
+  "description": "阅评说 (ypshuo.com) 小说刮削插件（WebAssembly 实现），支持备用API",
+  "description_en": "Novel scraper plugin for ypshuo.com (WebAssembly implementation) with backup API support",
   "runtime": "wasm",
   "license": "MIT",
   "homepage": "https://github.com/dqsq2e2/ypshuo-scraper-wasm",
   "entry_point": "ypshuo_scraper.wasm",
   "permissions": [
-    { "type": "network_access", "value": "m.ypshuo.com" }
+    { "type": "network_access", "value": "m.ypshuo.com" },
+    { "type": "network_access", "value": "www.youshu.me" }
   ]
 }
