@@ -1,15 +1,37 @@
 {
   "id": "ypshuo-scraper-wasm",
   "name": "ypshuo scraper",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "plugin_type": "scraper",
   "author": "Ting Reader Team",
-  "description": "阅评说 (ypshuo.com) 小说刮削插件（WebAssembly 实现），支持备用API",
+  "description": "阅评说（ypshuo.com）小说刮削插件（WebAssembly 实现），支持备用 API",
   "description_en": "Novel scraper plugin for ypshuo.com (WebAssembly implementation) with backup API support",
   "runtime": "wasm",
   "license": "MIT",
-  "homepage": "https://github.com/dqsq2e2/ypshuo-scraper-wasm",
+  "repo": "dqsq2e2/ypshuo-scraper-wasm",
   "entry_point": "ypshuo_scraper.wasm",
+  "scraper": {
+    "auto_scrape": true,
+    "search_fields": [
+      {
+        "key": "title",
+        "label": "书名",
+        "required": true,
+        "type": "text",
+        "placeholder": "输入书名",
+        "default_from": "title"
+      },
+      {
+        "key": "author",
+        "label": "作者",
+        "required": false,
+        "type": "text",
+        "placeholder": "可选，用于结果排序",
+        "default_from": "author"
+      }
+    ],
+    "result_fields": ["title", "author", "cover_url", "intro", "tags"]
+  },
   "permissions": [
     { "type": "network_access", "value": "m.ypshuo.com" },
     { "type": "network_access", "value": "www.youshu.me" }
