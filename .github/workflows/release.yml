@@ -119,7 +119,7 @@ jobs:
         env:
           TRPACK_SIGNING_KEY: ${{ secrets.TRPACK_SIGNING_KEY }}
         run: |
-                    TRPACK=".github/trpack/linux-x86_64/trpack"
+          TRPACK=".github/trpack/linux-x86_64/trpack"
           chmod +x "$TRPACK"
           mkdir -p dist
           SIGN_ARGS=()
@@ -128,7 +128,9 @@ jobs:
             SIGN_ARGS=(--sign-key .trpack-signing-key.json)
           else
             echo "::warning::TRPACK_SIGNING_KEY secret is not set; building unsigned package"
-          fi          OUT="dist/ypshuo-scraper-wasm-${{ needs.check-version.outputs.version }}.tr"
+          fi
+
+          OUT="dist/ypshuo-scraper-wasm-${{ needs.check-version.outputs.version }}.tr"
           "$TRPACK" validate .
           "$TRPACK" build . --output "$OUT" "${SIGN_ARGS[@]}"
           "$TRPACK" verify "$OUT"
