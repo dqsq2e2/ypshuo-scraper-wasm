@@ -1,0 +1,4 @@
+/target
+/dist
+/*.wasm
+/.trpack-signing-key.json

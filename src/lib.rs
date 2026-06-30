@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use serde::{Deserialize, Serialize};
 
 // --- FFI Helpers ---
 
@@ -55,10 +55,14 @@ pub extern "C" fn invoke(method_ptr: *const c_char, params_ptr: *const c_char) -
 extern "C" {
     fn http_request(url_ptr: *const u8, url_len: i32) -> i32;
     fn http_request_with_headers(
-        url_ptr: *const u8, url_len: i32,
-        method_ptr: *const u8, method_len: i32,
-        headers_ptr: *const u8, headers_len: i32,
-        body_ptr: *const u8, body_len: i32
+        url_ptr: *const u8,
+        url_len: i32,
+        method_ptr: *const u8,
+        method_len: i32,
+        headers_ptr: *const u8,
+        headers_len: i32,
+        body_ptr: *const u8,
+        body_len: i32,
     ) -> i32;
     fn http_response_size(handle: i32) -> i32;
     fn http_read_body(handle: i32, ptr: *mut u8, len: i32) -> i32;
@@ -84,18 +88,18 @@ fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
 fn fetch_url_post(url: &str, post_body: &str) -> Result<Vec<u8>, String> {
     let method = "POST";
     let headers_json = r#"{"Content-Type":"application/x-www-form-urlencoded"}"#;
-    
-    let handle = unsafe { 
+
+    let handle = unsafe {
         http_request_with_headers(
-            url.as_ptr(), 
+            url.as_ptr(),
             url.len() as i32,
             method.as_ptr(),
             method.len() as i32,
             headers_json.as_ptr(),
             headers_json.len() as i32,
             post_body.as_ptr(),
-            post_body.len() as i32
-        ) 
+            post_body.len() as i32,
+        )
     };
     if handle < 0 {
         return Err(format!("HTTP POST request failed: {}", -handle));
@@ -116,12 +120,44 @@ fn fetch_url_post(url: &str, post_body: &str) -> Result<Vec<u8>, String> {
 
 #[derive(Deserialize)]
 struct SearchParams {
-    query: String,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default = "default_page")]
     page: u32,
     #[serde(default)]
     author: Option<String>,
     #[serde(default, rename = "narrator")]
     _narrator: Option<String>,
+}
+
+impl SearchParams {
+    fn keyword(&self) -> Result<&str, String> {
+        if let Some(title) = self
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Ok(title);
+        }
+
+        if let Some(query) = self
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Ok(query);
+        }
+
+        Err("Missing required search field: title".to_string())
+    }
+}
+
+fn default_page() -> u32 {
+    1
 }
 
 #[derive(Serialize)]
@@ -179,7 +215,7 @@ struct YpshuoBook {
 
 fn handle_search(params_json: &str) -> Result<SearchResult, String> {
     let params: SearchParams = serde_json::from_str(params_json).map_err(|e| e.to_string())?;
-    
+
     // Try primary API first
     match try_primary_search(&params) {
         Ok(result) => Ok(result),
@@ -188,25 +224,26 @@ fn handle_search(params_json: &str) -> Result<SearchResult, String> {
             match try_backup_search(&params) {
                 Ok(result) => Ok(result),
                 Err(backup_err) => Err(format!(
-                    "Both APIs failed. Primary: {}; Backup: {}", 
-                    primary_err, 
-                    backup_err
-                ))
+                    "Both APIs failed. Primary: {}; Backup: {}",
+                    primary_err, backup_err
+                )),
             }
         }
     }
 }
 
 fn try_primary_search(params: &SearchParams) -> Result<SearchResult, String> {
+    let keyword = params.keyword()?;
     let url = format!(
         "https://m.ypshuo.com/api/novel/search?keyword={}&searchType=1&page={}",
-        url::form_urlencoded::byte_serialize(params.query.as_bytes()).collect::<String>(),
+        url::form_urlencoded::byte_serialize(keyword.as_bytes()).collect::<String>(),
         params.page
     );
 
     let body = fetch_url(&url)?;
-    let resp: YpshuoResponse<YpshuoSearchData> = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
-    
+    let resp: YpshuoResponse<YpshuoSearchData> =
+        serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+
     if resp.code != "00" {
         return Err(format!("API Error: {}", resp.code));
     }
@@ -216,36 +253,46 @@ fn try_primary_search(params: &SearchParams) -> Result<SearchResult, String> {
         None => Vec::new(),
     };
 
-    let mut items: Vec<BookItem> = book_list.into_iter().map(|b| {
-        let clean_title = b.novel_name
-            .split('丨')
-            .next()
-            .unwrap_or(&b.novel_name)
-            .split('|')
-            .next()
-            .unwrap_or(&b.novel_name)
-            .trim()
-            .to_string();
+    let mut items: Vec<BookItem> = book_list
+        .into_iter()
+        .map(|b| {
+            let clean_title = b
+                .novel_name
+                .split('丨')
+                .next()
+                .unwrap_or(&b.novel_name)
+                .split('|')
+                .next()
+                .unwrap_or(&b.novel_name)
+                .trim()
+                .to_string();
 
-        let mut cover = b.novel_img;
-        if cover.starts_with("//") {
-            cover = format!("https:{}", cover);
-        } else if cover.starts_with("http://") {
-            cover = cover.replacen("http://", "https://", 1);
-        }
+            let mut cover = b.novel_img;
+            if cover.starts_with("//") {
+                cover = format!("https:{}", cover);
+            } else if cover.starts_with("http://") {
+                cover = cover.replacen("http://", "https://", 1);
+            }
 
-        BookItem {
-            id: b.id.to_string(),
-            title: clean_title,
-            author: b.author_name,
-            cover_url: Some(cover),
-            intro: Some(b.synopsis),
-            narrator: None,
-            tags: b.tags.unwrap_or_default().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
-            chapter_count: None,
-            duration: None,
-        }
-    }).collect();
+            BookItem {
+                id: b.id.to_string(),
+                title: clean_title,
+                author: b.author_name,
+                cover_url: Some(cover),
+                intro: Some(b.synopsis),
+                narrator: None,
+                tags: b
+                    .tags
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                chapter_count: None,
+                duration: None,
+            }
+        })
+        .collect();
 
     apply_author_filter(&mut items, &params.author);
 
@@ -258,20 +305,21 @@ fn try_primary_search(params: &SearchParams) -> Result<SearchResult, String> {
 }
 
 fn try_backup_search(params: &SearchParams) -> Result<SearchResult, String> {
+    let keyword = params.keyword()?;
     let url = "https://www.youshu.me/modules/article/search.php";
-    
+
     // Build POST body
     let post_body = format!(
         "searchtype=all&searchkey={}&t_btnsearch=",
-        url::form_urlencoded::byte_serialize(params.query.as_bytes()).collect::<String>()
+        url::form_urlencoded::byte_serialize(keyword.as_bytes()).collect::<String>()
     );
 
     let body = fetch_url_post(url, &post_body)?;
     let html = String::from_utf8_lossy(&body);
-    
+
     // Parse HTML to extract book information
     let items = parse_youshu_html(&html)?;
-    
+
     let mut filtered_items = items;
     apply_author_filter(&mut filtered_items, &params.author);
 
@@ -285,71 +333,76 @@ fn try_backup_search(params: &SearchParams) -> Result<SearchResult, String> {
 
 fn parse_youshu_html(html: &str) -> Result<Vec<BookItem>, String> {
     // Check if this is a book detail page (redirect when only one result)
-    if html.contains("<div class=\"divbox cf blockn\">") && !html.contains("<div class=\"c_row\">") {
+    if html.contains("<div class=\"divbox cf blockn\">") && !html.contains("<div class=\"c_row\">")
+    {
         // This is a book detail page, parse it as a single book
         if let Some(book) = parse_book_detail_page(html) {
             return Ok(vec![book]);
         }
         return Err("Failed to parse book detail page".to_string());
     }
-    
+
     // Otherwise, parse as search results list
     let mut items = Vec::new();
-    
+
     // Split by book entries (each c_row div contains one book)
     let parts: Vec<&str> = html.split("<div class=\"c_row\">").collect();
-    
+
     for part in parts.iter().skip(1) {
         if let Some(book) = parse_single_book(part) {
             items.push(book);
         }
     }
-    
+
     if items.is_empty() {
         return Err("No books found in HTML response".to_string());
     }
-    
+
     Ok(items)
 }
 
 fn parse_single_book(html: &str) -> Option<BookItem> {
     // Extract book ID from URL like /book/293282
     let id = extract_between(html, "/book/", "\"")?;
-    
+
     // Extract title - it's inside <span class="c_subject"><a href="/book/ID"><span class="hot">TITLE</span></a></span>
     // or <span class="c_subject"><a href="/book/ID">TITLE</a></span>
     let title_section = extract_between(html, "<span class=\"c_subject\">", "</span>")?;
-    let title = if let Some(hot_title) = extract_between(title_section, "<span class=\"hot\">", "</span>") {
+    let title = if let Some(hot_title) =
+        extract_between(title_section, "<span class=\"hot\">", "</span>")
+    {
         hot_title
     } else {
         // No <span class="hot">, extract from <a href="/book/ID">TITLE</a>
         extract_between(title_section, "\">", "</a>")?
     };
-    
+
     // Extract author
     let author_section = extract_between(html, "<span class=\"c_label\">作者：</span>", "</span>")?;
     let author = extract_between(author_section, "<span class=\"c_value\">", "")?.to_string();
-    
+
     // Extract cover URL - look specifically for the book cover image with width:80px style
-    let cover_url = extract_between(html, "<img src=\"", "\" style=\"width:80px")
-        .map(|s| {
-            let mut url = s.to_string();
-            if url.starts_with("//") {
-                url = format!("https:{}", url);
-            } else if url.starts_with("http://") {
-                url = url.replace("http://", "https://");
-            }
-            url
-        });
-    
+    let cover_url = extract_between(html, "<img src=\"", "\" style=\"width:80px").map(|s| {
+        let mut url = s.to_string();
+        if url.starts_with("//") {
+            url = format!("https:{}", url);
+        } else if url.starts_with("http://") {
+            url = url.replace("http://", "https://");
+        }
+        url
+    });
+
     // Extract intro/description
     let intro = extract_between(html, "<div class=\"c_description\">", "</div>")
         .map(|s| s.trim().to_string());
-    
+
     // Extract tags
-    let tags = if let Some(tag_section) = extract_between(html, "<span class=\"c_label\">标签：</span>", "</span>") {
+    let tags = if let Some(tag_section) =
+        extract_between(html, "<span class=\"c_label\">标签：</span>", "</span>")
+    {
         if let Some(tag_value) = extract_between(tag_section, "<span class=\"c_value\">", "") {
-            tag_value.split(',')
+            tag_value
+                .split(',')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect()
@@ -359,7 +412,7 @@ fn parse_single_book(html: &str) -> Option<BookItem> {
     } else {
         Vec::new()
     };
-    
+
     Some(BookItem {
         id: id.to_string(),
         title: decode_html_entities(&title),
@@ -376,33 +429,49 @@ fn parse_single_book(html: &str) -> Option<BookItem> {
 fn parse_book_detail_page(html: &str) -> Option<BookItem> {
     // Extract book ID from URL in the page (e.g., in links like /book/20486)
     let id = extract_between(html, "jumpurl=%2Fbook%2F", "&")?;
-    
+
     // Extract title - it's in a span with font-size:20px
-    let title = extract_between(html, "font-size:20px;font-weight:bold;color:#f27622;\">", "</span>")?;
-    
+    let title = extract_between(
+        html,
+        "font-size:20px;font-weight:bold;color:#f27622;\">",
+        "</span>",
+    )?;
+
     // Extract author - it's in the link text
     // HTML: <span>&nbsp;&nbsp;作者：<a href="..." target="_blank">西风紧</a></span>
-    let author_link = extract_between(html, "作者：<a href=\"/modules/article/authorarticle.php?author=", "</a>")?;
+    let author_link = extract_between(
+        html,
+        "作者：<a href=\"/modules/article/authorarticle.php?author=",
+        "</a>",
+    )?;
     let author = author_link.rsplit('>').next()?.trim();
-    
+
     // Extract cover URL from the img src attribute
     // HTML: <a href="..." class="book-detail-img" target="_blank"><img src="http://..." style="border:1px...
-    let cover_url = extract_between(html, "class=\"book-detail-img\" target=\"_blank\"><img src=\"", "\" style=\"border:1px")
-        .map(|s| {
-            let mut url = s.to_string();
-            if url.starts_with("//") {
-                url = format!("https:{}", url);
-            } else if url.starts_with("http://") {
-                url = url.replacen("http://", "https://", 1);
-            }
-            url
-        });
-    
+    let cover_url = extract_between(
+        html,
+        "class=\"book-detail-img\" target=\"_blank\"><img src=\"",
+        "\" style=\"border:1px",
+    )
+    .map(|s| {
+        let mut url = s.to_string();
+        if url.starts_with("//") {
+            url = format!("https:{}", url);
+        } else if url.starts_with("http://") {
+            url = url.replacen("http://", "https://", 1);
+        }
+        url
+    });
+
     // Extract intro/description from tabvalue
-    let intro = extract_between(html, "<div class=\"tabvalue\" style=\"height:180px;\">", "</div>")
-        .and_then(|s| extract_between(s, "overflow-y:scroll;\">", ""))
-        .map(|s| s.trim().to_string());
-    
+    let intro = extract_between(
+        html,
+        "<div class=\"tabvalue\" style=\"height:180px;\">",
+        "</div>",
+    )
+    .and_then(|s| extract_between(s, "overflow-y:scroll;\">", ""))
+    .map(|s| s.trim().to_string());
+
     // Extract tags
     let tags = if let Some(tag_section) = extract_between(html, "<b>标签：</b>", "</div>") {
         let mut tag_list = Vec::new();
@@ -416,7 +485,7 @@ fn parse_book_detail_page(html: &str) -> Option<BookItem> {
     } else {
         Vec::new()
     };
-    
+
     Some(BookItem {
         id: id.to_string(),
         title: decode_html_entities(&title),
@@ -433,11 +502,11 @@ fn parse_book_detail_page(html: &str) -> Option<BookItem> {
 fn extract_between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
     let start_pos = text.find(start)? + start.len();
     let remaining = &text[start_pos..];
-    
+
     if end.is_empty() {
         return Some(remaining.split('<').next()?.trim());
     }
-    
+
     let end_pos = remaining.find(end)?;
     Some(remaining[..end_pos].trim())
 }
@@ -457,7 +526,8 @@ fn apply_author_filter(items: &mut Vec<BookItem>, author_filter: &Option<String>
             let normalized_filter = author_filter.trim().to_lowercase();
             let index = items.iter().position(|item| {
                 let author = item.author.trim().to_lowercase();
-                !author.is_empty() && (author.contains(&normalized_filter) || normalized_filter.contains(&author))
+                !author.is_empty()
+                    && (author.contains(&normalized_filter) || normalized_filter.contains(&author))
             });
 
             if let Some(idx) = index {
@@ -467,4 +537,3 @@ fn apply_author_filter(items: &mut Vec<BookItem>, author_filter: &Option<String>
         }
     }
 }
-

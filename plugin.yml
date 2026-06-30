@@ -1,0 +1,65 @@
+id: ypshuo-scraper-wasm
+name: ypshuo scraper
+version: 1.0.7
+min_core_version: 1.4.8
+author: Ting Reader Team
+description:
+  zh: 阅评说（ypshuo.com）小说刮削插件（WebAssembly 实现），支持备用 API
+  en: Novel scraper plugin for ypshuo.com (WebAssembly implementation) with backup
+    API support
+runtime: wasm
+license: MIT
+repo: dqsq2e2/ypshuo-scraper-wasm
+entry_point: ypshuo_scraper.wasm
+capabilities:
+- id: metadata.search
+  kind: metadata_provider
+  invoke: search
+  auto_scrape: true
+  search_fields:
+  - key: title
+    label:
+      zh: 书名
+      en: Title
+    required: true
+    type: text
+    placeholder:
+      zh: 输入书名
+      en: Enter title
+    default_from: book.title
+  - key: author
+    label:
+      zh: 作者
+      en: Author
+    required: false
+    type: text
+    placeholder:
+      zh: 可选，用于结果排序
+      en: Optional, helps rank results
+    default_from: book.author
+  result_fields:
+  - key: title
+    label:
+      zh: 书名
+      en: Title
+  - key: author
+    label:
+      zh: 作者
+      en: Author
+  - key: cover_url
+    label:
+      zh: 封面
+      en: Cover
+  - key: intro
+    label:
+      zh: 简介
+      en: Description
+  - key: tags
+    label:
+      zh: 标签
+      en: Tags
+permissions:
+- type: network_access
+  value: m.ypshuo.com
+- type: network_access
+  value: www.youshu.me
