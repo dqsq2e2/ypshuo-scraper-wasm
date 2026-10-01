@@ -5,12 +5,20 @@ on:
     branches:
       - main
     paths:
-      - "Cargo.toml"
       - "plugin.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "src/**"
+      - "ui/**"
+      - "tests/**"
+      - "README.md"
       - ".github/workflows/release.yml"
       - ".github/trpack/**"
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -28,7 +36,23 @@ jobs:
         id: version
         shell: bash
         run: |
-          VERSION=$(grep '^version =' Cargo.toml | head -n 1 | cut -d '"' -f 2)
+          VERSION=$(python - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path("plugin.yml").read_text(encoding="utf-8")
+          match = re.search(r"^version:\s*([^\s#]+)", text, re.M)
+          if not match:
+              raise SystemExit("plugin.yml version not found")
+          version = match.group(1).strip("\"'")
+          if Path("Cargo.toml").exists():
+              import tomllib
+              package_version = tomllib.loads(Path("Cargo.toml").read_text())["package"]["version"]
+              if package_version != version:
+                  raise SystemExit("Cargo.toml and plugin.yml versions differ")
+          print(version)
+          PY
+          )
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check Tag
@@ -42,77 +66,27 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-  tag:
+  build-and-release:
     needs: check-version
     if: needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
-      - name: Sync plugin.yml Version
-        shell: bash
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          export VERSION
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          path = Path("plugin.yml")
-          text = path.read_text(encoding="utf-8")
-          text = re.sub(r"^version:\s*.*$", f"version: {os.environ['VERSION']}", text, flags=re.M)
-          path.write_text(text, encoding="utf-8")
-          PY
-
-          if ! git diff --quiet -- plugin.yml; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add plugin.yml
-            git commit -m "chore: Bump plugin.yml version to $VERSION"
-            git push
-          fi
-
-      - name: Create Tag
-        shell: bash
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          git tag "v$VERSION" "$(git rev-parse HEAD)"
-          git push origin "refs/tags/v$VERSION"
-
-  build-and-release:
-    needs: [check-version, tag]
-    if: needs.check-version.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
         with:
-          ref: v${{ needs.check-version.outputs.version }}
+          ref: ${{ github.sha }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Build WASM
-        run: cargo build --release --target wasm32-wasip1
+        run: cargo build --release --locked --target wasm32-wasip1
 
-      - name: Prepare Manifest
-        shell: bash
-        env:
-          VERSION: ${{ needs.check-version.outputs.version }}
-        run: |
-          cp target/wasm32-wasip1/release/ypshuo_scraper.wasm ypshuo_scraper.wasm
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          path = Path("plugin.yml")
-          text = path.read_text(encoding="utf-8")
-          text = re.sub(r"^version:\s*.*$", f"version: {os.environ['VERSION']}", text, flags=re.M)
-          path.write_text(text, encoding="utf-8")
-          PY
+      - name: Prepare entry point
+        run: cp target/wasm32-wasip1/release/ypshuo_scraper.wasm ypshuo_scraper.wasm
 
       - name: Package .tr
         shell: bash
@@ -121,20 +95,28 @@ jobs:
         run: |
           TRPACK=".github/trpack/linux-x86_64/trpack"
           chmod +x "$TRPACK"
+          [[ "$("$TRPACK" --version)" == "trpack 2.0.1" ]]
           mkdir -p dist
           if [[ -z "${TRPACK_SIGNING_KEY:-}" ]]; then
             echo "::error::TRPACK_SIGNING_KEY secret is required for official plugin builds"
             exit 1
           fi
-          printf '%s' "$TRPACK_SIGNING_KEY" > .trpack-signing-key.json
+          KEY_FILE="$RUNNER_TEMP/trpack-signing-key.json"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          umask 077
+          printf '%s' "$TRPACK_SIGNING_KEY" > "$KEY_FILE"
 
           OUT="dist/ypshuo-scraper-wasm-${{ needs.check-version.outputs.version }}.tr"
           "$TRPACK" validate .
-          "$TRPACK" build . --output "$OUT" --sign-key .trpack-signing-key.json
+          "$TRPACK" build . --output "$OUT" --sign-key "$KEY_FILE"
           "$TRPACK" verify "$OUT"
+          (cd dist && sha256sum "$(basename "$OUT")" > "$(basename "$OUT").sha256")
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
-          files: dist/*.tr
+          target_commitish: ${{ github.sha }}
+          files: |
+            dist/*.tr
+            dist/*.tr.sha256

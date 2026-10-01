@@ -1,127 +1,49 @@
 use serde::{Deserialize, Serialize};
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
 
-// --- FFI Helpers ---
+// All platform calls use the shared v2 SDK and its scoped Host resources.
+use ting_plugin_sdk::{Host, Plugin, Result as SdkResult};
 
-#[no_mangle]
-pub extern "C" fn alloc(len: usize) -> *mut u8 {
-    let mut buf = Vec::with_capacity(len);
-    let ptr = buf.as_mut_ptr();
-    std::mem::forget(buf);
-    ptr
-}
+#[derive(Default)]
+struct Scraper;
 
-#[no_mangle]
-pub extern "C" fn dealloc(ptr: *mut u8, len: usize) {
-    unsafe {
-        let _ = Vec::from_raw_parts(ptr, 0, len);
+impl Plugin for Scraper {
+    const ID: &'static str = "ypshuo-scraper-wasm";
+    const OPERATIONS: &'static [&'static str] = &["search"];
+
+    fn invoke(
+        &mut self, operation: &str, input: serde_json::Value, _host: &dyn Host,
+    ) -> SdkResult<serde_json::Value> {
+        match operation {
+            "search" => {
+                let params = serde_json::to_string(&input)
+                    .map_err(ting_plugin_sdk::SdkError::parse)?;
+                handle_search(&params)
+                    .map_err(ting_plugin_sdk::SdkError::invalid)
+                    .and_then(|page| ting_scraper_sdk::publish_search_for_request(&input, page))
+            }
+            _ => Err(ting_plugin_sdk::SdkError::invalid("Unknown operation")),
+        }
     }
 }
 
-// --- Plugin Interface ---
+ting_plugin_sdk::export_plugin!(Scraper);
 
-#[no_mangle]
-pub extern "C" fn initialize() -> i32 {
-    0 // Success
-}
-
-#[no_mangle]
-pub extern "C" fn shutdown() -> i32 {
-    0 // Success
-}
-
-#[no_mangle]
-pub extern "C" fn invoke(method_ptr: *const c_char, params_ptr: *const c_char) -> *mut c_char {
-    let method = unsafe { CStr::from_ptr(method_ptr).to_string_lossy() };
-    let params_json = unsafe { CStr::from_ptr(params_ptr).to_string_lossy() };
-
-    let result = match method.as_ref() {
-        "search" => handle_search(&params_json).map(|r| serde_json::to_string(&r).unwrap()),
-        _ => Err(format!("Unknown method: {}", method)),
-    };
-
-    let response_json = match result {
-        Ok(json) => json,
-        Err(e) => serde_json::json!({ "error": e }).to_string(),
-    };
-
-    CString::new(response_json).unwrap().into_raw()
-}
-
-// --- Host Functions ---
-
-#[link(wasm_import_module = "ting_env")]
-extern "C" {
-    fn http_request(url_ptr: *const u8, url_len: i32) -> i32;
-    fn http_request_with_headers(
-        url_ptr: *const u8,
-        url_len: i32,
-        method_ptr: *const u8,
-        method_len: i32,
-        headers_ptr: *const u8,
-        headers_len: i32,
-        body_ptr: *const u8,
-        body_len: i32,
-    ) -> i32;
-    fn http_response_size(handle: i32) -> i32;
-    fn http_read_body(handle: i32, ptr: *mut u8, len: i32) -> i32;
-}
-
+// Preserve scraper-specific parsing and request construction.
 fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
-    let handle = unsafe { http_request(url.as_ptr(), url.len() as i32) };
-    if handle < 0 {
-        return Err(format!("HTTP request failed: {}", -handle));
-    }
-    let size = unsafe { http_response_size(handle) };
-    if size < 0 {
-        return Err("Failed to get response size".to_string());
-    }
-    let mut body = vec![0u8; size as usize];
-    let read_len = unsafe { http_read_body(handle, body.as_mut_ptr(), size) };
-    if read_len < 0 {
-        return Err("Failed to read body".to_string());
-    }
-    Ok(body)
+    ting_plugin_sdk::http_request(&ting_plugin_sdk::wasm::WasmHost, url, "GET",
+        serde_json::json!({}), None).map_err(|error| error.to_string())
 }
 
 fn fetch_url_post(url: &str, post_body: &str) -> Result<Vec<u8>, String> {
-    let method = "POST";
-    let headers_json = r#"{"Content-Type":"application/x-www-form-urlencoded"}"#;
-
-    let handle = unsafe {
-        http_request_with_headers(
-            url.as_ptr(),
-            url.len() as i32,
-            method.as_ptr(),
-            method.len() as i32,
-            headers_json.as_ptr(),
-            headers_json.len() as i32,
-            post_body.as_ptr(),
-            post_body.len() as i32,
-        )
-    };
-    if handle < 0 {
-        return Err(format!("HTTP POST request failed: {}", -handle));
-    }
-    let size = unsafe { http_response_size(handle) };
-    if size < 0 {
-        return Err("Failed to get response size".to_string());
-    }
-    let mut body = vec![0u8; size as usize];
-    let read_len = unsafe { http_read_body(handle, body.as_mut_ptr(), size) };
-    if read_len < 0 {
-        return Err("Failed to read body".to_string());
-    }
-    Ok(body)
+    ting_plugin_sdk::http_request(&ting_plugin_sdk::wasm::WasmHost, url, "POST",
+        serde_json::json!({"Content-Type": "application/x-www-form-urlencoded"}),
+        Some(post_body)).map_err(|error| error.to_string())
 }
 
 // --- Handlers ---
 
 #[derive(Deserialize)]
 struct SearchParams {
-    #[serde(default)]
-    query: Option<String>,
     #[serde(default)]
     title: Option<String>,
     #[serde(default = "default_page")]
@@ -141,15 +63,6 @@ impl SearchParams {
             .filter(|s| !s.is_empty())
         {
             return Ok(title);
-        }
-
-        if let Some(query) = self
-            .query
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            return Ok(query);
         }
 
         Err("Missing required search field: title".to_string())
@@ -415,7 +328,7 @@ fn parse_single_book(html: &str) -> Option<BookItem> {
 
     Some(BookItem {
         id: id.to_string(),
-        title: decode_html_entities(&title),
+        title: decode_html_entities(title),
         author: decode_html_entities(&author),
         cover_url,
         intro: intro.map(|s| decode_html_entities(&s)),
@@ -488,8 +401,8 @@ fn parse_book_detail_page(html: &str) -> Option<BookItem> {
 
     Some(BookItem {
         id: id.to_string(),
-        title: decode_html_entities(&title),
-        author: decode_html_entities(&author),
+        title: decode_html_entities(title),
+        author: decode_html_entities(author),
         cover_url,
         intro: intro.map(|s| decode_html_entities(&s)),
         narrator: None,
