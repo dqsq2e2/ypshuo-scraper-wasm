@@ -11,12 +11,15 @@ impl Plugin for Scraper {
     const OPERATIONS: &'static [&'static str] = &["search"];
 
     fn invoke(
-        &mut self, operation: &str, input: serde_json::Value, _host: &dyn Host,
+        &mut self,
+        operation: &str,
+        input: serde_json::Value,
+        _host: &dyn Host,
     ) -> SdkResult<serde_json::Value> {
         match operation {
             "search" => {
-                let params = serde_json::to_string(&input)
-                    .map_err(ting_plugin_sdk::SdkError::parse)?;
+                let params =
+                    serde_json::to_string(&input).map_err(ting_plugin_sdk::SdkError::parse)?;
                 handle_search(&params)
                     .map_err(ting_plugin_sdk::SdkError::invalid)
                     .and_then(|page| ting_scraper_sdk::publish_search_for_request(&input, page))
@@ -30,14 +33,25 @@ ting_plugin_sdk::export_plugin!(Scraper);
 
 // Preserve scraper-specific parsing and request construction.
 fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
-    ting_plugin_sdk::http_request(&ting_plugin_sdk::wasm::WasmHost, url, "GET",
-        serde_json::json!({}), None).map_err(|error| error.to_string())
+    ting_plugin_sdk::http_request(
+        &ting_plugin_sdk::wasm::WasmHost,
+        url,
+        "GET",
+        serde_json::json!({}),
+        None,
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn fetch_url_post(url: &str, post_body: &str) -> Result<Vec<u8>, String> {
-    ting_plugin_sdk::http_request(&ting_plugin_sdk::wasm::WasmHost, url, "POST",
+    ting_plugin_sdk::http_request(
+        &ting_plugin_sdk::wasm::WasmHost,
+        url,
+        "POST",
         serde_json::json!({"Content-Type": "application/x-www-form-urlencoded"}),
-        Some(post_body)).map_err(|error| error.to_string())
+        Some(post_body),
+    )
+    .map_err(|error| error.to_string())
 }
 
 // --- Handlers ---
