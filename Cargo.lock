@@ -284,8 +284,8 @@ dependencies = [
 
 [[package]]
 name = "ting-plugin-contract"
-version = "2.0.3"
-source = "git+https://github.com/dqsq2e2/ting-reader-plugin-contract.git?tag=v2.0.3#1cbf0b4eebbac327dcc5699d52d0e1bc46eaee4a"
+version = "2.0.4"
+source = "git+https://github.com/dqsq2e2/ting-reader-plugin-contract.git?tag=v2.0.4#d05cd793e78cf8f592cabfffa855f431c156e078"
 dependencies = [
  "semver",
  "serde",
@@ -294,8 +294,8 @@ dependencies = [
 
 [[package]]
 name = "ting-plugin-sdk"
-version = "2.0.4"
-source = "git+https://github.com/dqsq2e2/ting-plugin-sdk.git?tag=v2.0.4#179badecfb6bc7714060e82edc3b53711ee784d8"
+version = "2.0.5"
+source = "git+https://github.com/dqsq2e2/ting-plugin-sdk.git?tag=v2.0.5#698e39282a6185b65d2b40a5efb50ff8993c0796"
 dependencies = [
  "serde",
  "serde_json",
@@ -304,8 +304,8 @@ dependencies = [
 
 [[package]]
 name = "ting-scraper-sdk"
-version = "2.0.4"
-source = "git+https://github.com/dqsq2e2/ting-scraper-sdk.git?tag=v2.0.4#0cda22a81e630e460d157cac3e180fdf32a5f92b"
+version = "2.0.5"
+source = "git+https://github.com/dqsq2e2/ting-scraper-sdk.git?tag=v2.0.5#9e9425a7d772fabdff64bcb18c1cf89957fd9bc5"
 dependencies = [
  "serde",
  "serde_json",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "ypshuo-scraper"
-version = "2.0.3"
+version = "2.0.4"
 dependencies = [
  "anyhow",
  "base64",
